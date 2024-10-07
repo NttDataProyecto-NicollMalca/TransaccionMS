@@ -1,0 +1,147 @@
+openapi: "3.0.1"
+info:
+  title: API Transacciones
+  description: API para gestionar transacciones como depósitos, retiros y transferencias.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8082
+    description: Servidor local
+paths:
+  /transacciones/deposito:
+    post:
+      summary: Registrar un depósito
+      operationId: registrarDeposito
+      requestBody:
+        description: Detalles de la transacción de depósito
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionRequest"
+      responses:
+        '200':
+          description: Depósito registrado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionResponse"
+
+  /transacciones/retiro:
+    post:
+      summary: Registrar un retiro
+      operationId: registrarRetiro
+      requestBody:
+        description: Detalles de la transacción de retiro
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionRequest"
+      responses:
+        '200':
+          description: Retiro registrado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionResponse"
+
+  /transacciones/transferencia:
+    post:
+      summary: Registrar una transferencia
+      operationId: registrarTransferencia
+      requestBody:
+        description: Detalles de la transacción de transferencia
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferRequest"
+      responses:
+        '200':
+          description: Transferencia registrada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionResponse"
+
+  /transacciones/historial:
+    get:
+      summary: Consultar historial de transacciones
+      operationId: consultarHistorial
+      responses:
+        '200':
+          description: Historial de transacciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TransactionResponse"
+
+components:
+  schemas:
+    TransactionRequest:
+      type: object
+      properties:
+        accountId:
+          type: string
+          description: ID de la cuenta asociada a la transacción
+        type:
+          type: string
+          description: Tipo de transacción
+          enum:
+            - DEPOSITO
+            - RETIRO
+        amount:
+          type: number
+          description: Monto de la transacción
+        date:
+          type: string
+          description: Fecha y hora de la transacción
+
+    TransferRequest:
+      type: object
+      properties:
+        fromAccountId:
+          type: string
+          description: ID de la cuenta de origen
+        toAccountId:
+          type: string
+          description: ID de la cuenta de destino
+        amount:
+          type: number
+          description: Monto de la transferencia
+        date:
+          type: string
+          description: Fecha y hora de la transacción
+        type:
+          type: string
+          description: Tipo de transacción (solo puede ser TRANSFERENCIA)
+          enum:
+            - TRANSFERENCIA
+
+    TransactionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: ID único de la transacción
+        type:
+          type: string
+          description: Tipo de transacción (Depósito, Retiro, Transferencia)
+          enum:
+            - DEPOSITO
+            - RETIRO
+            - TRANSFERENCIA
+        amount:
+          type: number
+          description: Monto de la transacción
+        date:
+          type: string
+          description: Fecha de la transacción
+        accountId:
+          type: string
+          description: ID de la cuenta asociada a la transacción
+        toAccountId:
+          type: string
+          description: ID de la cuenta de destino (para transferencias)
