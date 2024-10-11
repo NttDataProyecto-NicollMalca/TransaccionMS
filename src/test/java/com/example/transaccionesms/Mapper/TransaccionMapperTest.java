@@ -53,7 +53,7 @@ public class TransaccionMapperTest {
         assertEquals(TransactionResponse.TypeEnum.DEPOSITO, response.getType());
         assertEquals(new BigDecimal("100.00"), response.getAmount());
         assertEquals("2024-01-01", response.getDate());
-        assertNull(response.getToAccountId()); // No toAccountId for deposito/retiro
+        assertNull(response.getToAccountId());
     }
 
     @Test
