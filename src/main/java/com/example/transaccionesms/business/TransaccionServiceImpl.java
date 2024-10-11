@@ -1,15 +1,14 @@
 package com.example.transaccionesms.business;
 
+import com.example.transaccionesms.business.strategy.DepositoStrategy;
+import com.example.transaccionesms.business.strategy.RetiroStrategy;
+import com.example.transaccionesms.business.strategy.TransaccionStrategy;
 import com.example.transaccionesms.model.*;
 import com.example.transaccionesms.repository.TransaccionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -17,16 +16,32 @@ import java.util.stream.Collectors;
 @Service
 public class TransaccionServiceImpl implements TransaccionService{
 
-    @Autowired
-    TransaccionRepository transaccionRepository;
+    private final TransaccionRepository transaccionRepository;
+    private final TransaccionMapper transaccionMapper;
+    private final CuentaValidator cuentaValidator;
+    private final CuentaRestService cuentaRestService;
+    private final Map<TipoTransaccion, TransaccionStrategy> estrategias = new HashMap<>();
 
     @Autowired
-    TransaccionMapper transaccionMapper;
+    public TransaccionServiceImpl(TransaccionRepository transaccionRepository,
+                                  TransaccionMapper transaccionMapper,
+                                  CuentaValidator cuentaValidator,
+                                  CuentaRestService cuentaRestService,
+                                  List<TransaccionStrategy> estrategiaList) {
+        this.transaccionRepository = transaccionRepository;
+        this.transaccionMapper = transaccionMapper;
+        this.cuentaValidator = cuentaValidator;
+        this.cuentaRestService = cuentaRestService;
 
-    @Autowired
-    private RestTemplate restTemplate;
+        for (TransaccionStrategy estrategia : estrategiaList) {
+            if (estrategia instanceof DepositoStrategy) {
+                estrategias.put(TipoTransaccion.DEPOSITO, estrategia);
+            } else if (estrategia instanceof RetiroStrategy) {
+                estrategias.put(TipoTransaccion.RETIRO, estrategia);
+            }
+        }
+    }
 
-    private static final String Account_WS = "http://localhost:8081/cuentas";
 
     @Override
     public List<TransactionResponse> consultarHistorial() {
@@ -41,15 +56,13 @@ public class TransaccionServiceImpl implements TransaccionService{
         if(!transactionRequest.getType().equals(TransactionRequest.TypeEnum.DEPOSITO)){
             throw new IllegalArgumentException("Tipo de transacción inválido para depósito");
         }
+        cuentaValidator.verificarCuentaExistente(transactionRequest.getAccountId());
 
-        verificarCuentaExistente(transactionRequest.getAccountId());
+        cuentaRestService.realizarDeposito(transactionRequest.getAccountId(),transactionRequest.getAmount());
 
-        realizarDeposito(transactionRequest.getAccountId(),transactionRequest.getAmount());
+        return estrategias.get(TipoTransaccion.DEPOSITO)
+                .ejecutar(transaccionRepository, transaccionMapper, transactionRequest);
 
-
-        return transaccionMapper.getTransactionResponseOfTransaction(
-                transaccionRepository.save(transaccionMapper.getTransactionOfTransactionRequest(transactionRequest))
-        );
     }
 
     @Override
@@ -58,24 +71,23 @@ public class TransaccionServiceImpl implements TransaccionService{
             throw new IllegalArgumentException("Tipo de transacción inválido para retiro");
         }
 
-        verificarCuentaExistente(transactionRequest.getAccountId());
+        cuentaValidator.verificarCuentaExistente(transactionRequest.getAccountId());
 
-        realizarRetiro(transactionRequest.getAccountId(),transactionRequest.getAmount());
+        cuentaRestService.realizarRetiro(transactionRequest.getAccountId(),transactionRequest.getAmount());
 
-        return transaccionMapper.getTransactionResponseOfTransaction(
-                transaccionRepository.save(transaccionMapper.getTransactionOfTransactionRequest(transactionRequest))
-        );
+        return estrategias.get(TipoTransaccion.RETIRO)
+                .ejecutar(transaccionRepository, transaccionMapper, transactionRequest);
+
     }
 
     @Override
     public TransactionResponse registrarTransferencia(TransferRequest transferRequest) {
 
-        verificarCuentaExistente(transferRequest.getFromAccountId());
-        verificarCuentaExistente(transferRequest.getToAccountId());
+        cuentaValidator.verificarCuentaExistente(transferRequest.getFromAccountId());
+        cuentaValidator.verificarCuentaExistente(transferRequest.getToAccountId());
 
-        realizarRetiro(transferRequest.getFromAccountId(), transferRequest.getAmount());
-
-        realizarDeposito(transferRequest.getToAccountId(), transferRequest.getAmount());
+        cuentaRestService.realizarRetiro(transferRequest.getFromAccountId(), transferRequest.getAmount());
+        cuentaRestService.realizarDeposito(transferRequest.getToAccountId(), transferRequest.getAmount());
 
         Transaccion transaction = new Transaccion();
         transaction.setFromAccountId(transferRequest.getFromAccountId());
@@ -88,72 +100,5 @@ public class TransaccionServiceImpl implements TransaccionService{
                 transaccionRepository.save(transaction)
         );
     }
-
-
-    private void verificarCuentaExistente(String accountId) {
-        try {
-            List<Map<String, Object>> cuentas = restTemplate.getForObject(Account_WS, List.class);
-
-            boolean cuentaExiste = cuentas.stream()
-                    .anyMatch(cuenta -> cuenta.get("id").equals(accountId));
-
-            if (!cuentaExiste) {
-                throw new IllegalArgumentException("La cuenta con ID " + accountId + " no existe.");
-            }
-        } catch (RestClientException e) {
-            throw new RuntimeException("Error al obtener cuentas del microservicio", e);
-        }
-    }
-
-
-    private void realizarRetiro(String cuentaId, BigDecimal monto) {
-        String url = Account_WS +"/" + cuentaId + "/retirar";
-
-        InlineObject1 retiroRequest = new InlineObject1();
-        retiroRequest.setMonto(monto.doubleValue());
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<InlineObject1> requestEntity = new HttpEntity<>(retiroRequest, headers);
-
-        ResponseEntity<Void> response = restTemplate.exchange(
-                url,
-                HttpMethod.PUT,
-                requestEntity,
-                Void.class
-        );
-
-        if (!response.getStatusCode().is2xxSuccessful()) {
-            throw new RuntimeException("Error al realizar el retiro en la cuenta");
-        }
-
-    }
-
-    private void realizarDeposito(String cuentaId, BigDecimal monto) {
-        String url = Account_WS +"/" + cuentaId + "/depositar";
-
-        InlineObject1 depositoRequest = new InlineObject1();
-        depositoRequest.setMonto(monto.doubleValue());
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<InlineObject1> requestEntity = new HttpEntity<>(depositoRequest, headers);
-
-        ResponseEntity<Void> response = restTemplate.exchange(
-                url,
-                HttpMethod.PUT,
-                requestEntity,
-                Void.class
-        );
-
-        if (!response.getStatusCode().is2xxSuccessful()) {
-            throw new RuntimeException("Error al realizar el deposito en la cuenta");
-        }
-
-    }
-
-
-
-
 
 }
